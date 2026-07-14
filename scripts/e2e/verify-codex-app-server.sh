@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 PORT="${1:-14500}"
-LOG="${TMPDIR:-/tmp}/morphling-codex-app-server.log"
+LOG="${TMPDIR:-/tmp}/agentmascot-codex-app-server.log"
 codex app-server --listen "ws://127.0.0.1:$PORT" >"$LOG" 2>&1 &
 PID=$!
 trap 'kill "$PID" 2>/dev/null || true; wait "$PID" 2>/dev/null || true' EXIT

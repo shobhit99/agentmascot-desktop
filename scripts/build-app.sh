@@ -6,7 +6,7 @@ cd "$ROOT_DIR"
 
 CONFIGURATION="${CONFIGURATION:-release}"
 SIGNING_IDENTITY="${SIGNING_IDENTITY:--}"
-RESOURCE_BUNDLE_NAME="Morphling_MorphlingApp.bundle"
+RESOURCE_BUNDLE_NAME="AgentMascot_AgentMascotApp.bundle"
 BUILD_ARGS=(-c "$CONFIGURATION")
 
 if [[ "${DISABLE_SWIFTPM_SANDBOX:-0}" == "1" ]]; then
@@ -19,18 +19,18 @@ mkdir -p "$CLANG_MODULE_CACHE_PATH"
 
 swift build "${BUILD_ARGS[@]}"
 BIN_DIR="$(swift build "${BUILD_ARGS[@]}" --show-bin-path)"
-APP="$ROOT_DIR/build/Morphling.app"
+APP="$ROOT_DIR/build/Agent Mascot.app"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-cp "$BIN_DIR/MorphlingApp" "$APP/Contents/MacOS/"
+cp "$BIN_DIR/AgentMascotApp" "$APP/Contents/MacOS/"
 cp "$ROOT_DIR/Resources/Info.plist" "$APP/Contents/"
 cp -R "$BIN_DIR/$RESOURCE_BUNDLE_NAME" "$APP/Contents/Resources/"
 
-[[ -x "$APP/Contents/MacOS/MorphlingApp" ]]
-/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Contents/Info.plist" | grep -qx com.workview.morphling
+[[ -x "$APP/Contents/MacOS/AgentMascotApp" ]]
+/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Contents/Info.plist" | grep -qx com.workview.agentmascot
 RESOURCE_BUNDLE="$APP/Contents/Resources/$RESOURCE_BUNDLE_NAME"
-[[ -f "$RESOURCE_BUNDLE/morphling-claude-event.sh" ]]
-[[ -f "$RESOURCE_BUNDLE/morphling-codex-event.sh" ]]
+[[ -f "$RESOURCE_BUNDLE/agent-mascot-claude-event.sh" ]]
+[[ -f "$RESOURCE_BUNDLE/agent-mascot-codex-event.sh" ]]
 for asset in MascotIdle MascotWorking MascotNeedsInput; do
   [[ -f "$RESOURCE_BUNDLE/$asset.svg" ]]
 done

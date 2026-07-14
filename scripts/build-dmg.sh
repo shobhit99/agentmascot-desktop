@@ -2,9 +2,9 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-APP="$ROOT_DIR/build/Morphling.app"
+APP="$ROOT_DIR/build/Agent Mascot.app"
 STAGING_DIR="$ROOT_DIR/build/dmg-root"
-OUTPUT_DMG="${1:-$ROOT_DIR/build/Morphling.dmg}"
+OUTPUT_DMG="${1:-$ROOT_DIR/build/Agent Mascot.dmg}"
 SIGNING_IDENTITY="${SIGNING_IDENTITY:--}"
 NOTARY_AUTH_ARGS=()
 
@@ -48,12 +48,12 @@ codesign --verify --strict --verbose=2 "$APP"
 
 rm -rf "$STAGING_DIR"
 mkdir -p "$STAGING_DIR"
-ditto "$APP" "$STAGING_DIR/Morphling.app"
+ditto "$APP" "$STAGING_DIR/Agent Mascot.app"
 ln -s /Applications "$STAGING_DIR/Applications"
 rm -f "$OUTPUT_DMG"
 
 hdiutil create \
-  -volname "Morphling" \
+  -volname "Agent Mascot" \
   -srcfolder "$STAGING_DIR" \
   -format UDZO \
   -ov \

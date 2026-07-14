@@ -2,10 +2,10 @@
 set -euo pipefail
 
 MODE="${1:-run}"
-APP_NAME="MorphlingApp"
-BUNDLE_ID="com.workview.morphling"
+APP_NAME="AgentMascotApp"
+BUNDLE_ID="com.workview.agentmascot"
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-APP_BUNDLE="$ROOT_DIR/build/Morphling.app"
+APP_BUNDLE="$ROOT_DIR/build/Agent Mascot.app"
 APP_BINARY="$APP_BUNDLE/Contents/MacOS/$APP_NAME"
 
 pkill -x "$APP_NAME" >/dev/null 2>&1 || true

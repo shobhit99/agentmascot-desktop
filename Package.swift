@@ -1,12 +1,12 @@
 // swift-tools-version: 6.2
 import PackageDescription
 let package = Package(
-    name: "Morphling",
+    name: "AgentMascot",
     platforms: [.macOS(.v15)],
-    products: [.executable(name: "MorphlingApp", targets: ["MorphlingApp"])],
+    products: [.executable(name: "AgentMascotApp", targets: ["AgentMascotApp"])],
     targets: [
         .executableTarget(
-            name: "MorphlingApp",
+            name: "AgentMascotApp",
             exclude: [
                 "Resources/Mascots/haland.apng",
                 "Resources/Mascots/haland_out.mov"
@@ -19,6 +19,6 @@ let package = Package(
                 .process("Resources/Mascots/MascotNeedsInput.svg")
             ]
         ),
-        .testTarget(name: "MorphlingTests", dependencies: ["MorphlingApp"])
+        .testTarget(name: "AgentMascotTests", dependencies: ["AgentMascotApp"])
     ]
 )
