@@ -5,7 +5,20 @@ let package = Package(
     platforms: [.macOS(.v15)],
     products: [.executable(name: "MorphlingApp", targets: ["MorphlingApp"])],
     targets: [
-        .executableTarget(name: "MorphlingApp", resources: [.process("Resources")]),
+        .executableTarget(
+            name: "MorphlingApp",
+            exclude: [
+                "Resources/Mascots/haland.apng",
+                "Resources/Mascots/haland_out.mov"
+            ],
+            resources: [
+                .process("Resources/Hooks"),
+                .process("Resources/Mascots/HalandFramesV2"),
+                .process("Resources/Mascots/MascotIdle.svg"),
+                .process("Resources/Mascots/MascotWorking.svg"),
+                .process("Resources/Mascots/MascotNeedsInput.svg")
+            ]
+        ),
         .testTarget(name: "MorphlingTests", dependencies: ["MorphlingApp"])
     ]
 )

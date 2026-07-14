@@ -66,12 +66,10 @@ private struct AnimatedMascotView: View {
     private static func loadFrames() -> [NSImage] {
         (1...49).compactMap { index in
             let name = String(format: "frame-%03d", index)
-            let url = Bundle.module.url(
+            let url = MorphlingResources.url(
                 forResource: name,
-                withExtension: "png",
-                subdirectory: "Mascots/HalandFramesV2"
-            ) ?? Bundle.main.resourceURL?
-                .appendingPathComponent("Mascots/HalandFramesV2/\(name).png")
+                withExtension: "png"
+            )
             return url.flatMap(NSImage.init(contentsOf:))
         }
     }

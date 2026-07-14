@@ -166,9 +166,139 @@ final class MorphlingTests: XCTestCase {
         let frame = try CodexJSONRPC.decode(Data(#"{"jsonrpc":"2.0","method":"turn/started","params":{"threadId":"t"}}"#.utf8))
         XCTAssertEqual(frame.method, "turn/started")
         XCTAssertEqual(CodexAppServerMapper.event(from: frame)?.kind, .workStarted)
+        let initializeResponse = try CodexJSONRPC.decode(Data(#"{"id":1,"result":{"userAgent":"Codex Desktop/0.144.1"}}"#.utf8))
+        XCTAssertEqual(initializeResponse.id, .number(1))
+        XCTAssertNotNil(initializeResponse.result)
+    }
+
+    func testCodexExecutableResolverFindsLocalShimWithoutGUIPath() throws {
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let executable = home.appendingPathComponent(".local/bin/codex")
+        try FileManager.default.createDirectory(at: executable.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("#!/bin/sh\n".utf8).write(to: executable)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        let resolved = CodexExecutableResolver.resolve(
+            environment: ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin"],
+            homeDirectory: home,
+            systemCandidates: []
+        )
+        XCTAssertEqual(resolved?.standardizedFileURL, executable.standardizedFileURL)
+    }
+
+    func testCodexExecutableResolverPrefersExplicitPath() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let executable = root.appendingPathComponent("custom-codex")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try Data("#!/bin/sh\n".utf8).write(to: executable)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let resolved = CodexExecutableResolver.resolve(
+            environment: ["MORPHLING_CODEX_PATH": executable.path, "PATH": "/usr/bin:/bin"],
+            homeDirectory: root,
+            systemCandidates: []
+        )
+        XCTAssertEqual(resolved?.standardizedFileURL, executable.standardizedFileURL)
+    }
+
+    func testCodexExecutableResolverRepairsFinderPathForNVMShim() throws {
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let nvmBin = home.appendingPathComponent(".nvm/versions/node/v24.6.0/bin")
+        let nvmCodex = nvmBin.appendingPathComponent("codex")
+        let node = nvmBin.appendingPathComponent("node")
+        let localBin = home.appendingPathComponent(".local/bin")
+        let localCodex = localBin.appendingPathComponent("codex")
+        try FileManager.default.createDirectory(at: nvmBin, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: localBin, withIntermediateDirectories: true)
+        try Data("#!/usr/bin/env node\n".utf8).write(to: nvmCodex)
+        try Data("#!/bin/sh\n".utf8).write(to: node)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: nvmCodex.path)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: node.path)
+        try FileManager.default.createSymbolicLink(at: localCodex, withDestinationURL: nvmCodex)
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        let minimalGUIEnvironment = ["HOME": home.path, "PATH": "/usr/bin:/bin:/usr/sbin:/sbin"]
+        let resolved = try XCTUnwrap(CodexExecutableResolver.resolve(
+            environment: minimalGUIEnvironment,
+            homeDirectory: home,
+            systemCandidates: []
+        ))
+        let launchEnvironment = CodexExecutableResolver.launchEnvironment(
+            for: resolved,
+            environment: minimalGUIEnvironment,
+            homeDirectory: home
+        )
+
+        XCTAssertEqual(resolved.standardizedFileURL, localCodex.standardizedFileURL)
+        let firstPath = try XCTUnwrap(launchEnvironment["PATH"]?.split(separator: ":").first.map(String.init))
+        XCTAssertEqual(
+            URL(fileURLWithPath: firstPath).resolvingSymlinksInPath(),
+            nvmBin.resolvingSymlinksInPath()
+        )
+    }
+
+    func testCodexThreadDiscoveryMapsLiveDesktopAndSubagentTurns() throws {
+        let desktopFrame = try CodexJSONRPC.decode(Data(#"{"id":21,"result":{"thread":{"id":"desktop-thread","parentThreadId":null,"agentNickname":null,"name":"Fix session detection","cwd":"/tmp/desktop","updatedAt":1784032676,"turns":[{"status":"interrupted","completedAt":null}]}}}"#.utf8))
+        let subagentFrame = try CodexJSONRPC.decode(Data(#"{"id":22,"result":{"thread":{"id":"subagent-thread","parentThreadId":"desktop-thread","agentNickname":"Popper","name":null,"cwd":"/tmp/worker","updatedAt":1784032696,"turns":[{"status":"inProgress","completedAt":null}]}}}"#.utf8))
+
+        let desktop = try XCTUnwrap(CodexThreadDiscovery.event(fromThreadRead: desktopFrame))
+        let subagent = try XCTUnwrap(CodexThreadDiscovery.event(fromThreadRead: subagentFrame))
+
+        XCTAssertEqual(desktop.sessionID, "desktop-thread")
+        XCTAssertEqual(desktop.kind, .workStarted)
+        XCTAssertEqual(desktop.title, "Fix session detection")
+        XCTAssertEqual(subagent.sessionID, "subagent-thread")
+        XCTAssertEqual(subagent.kind, .workStarted)
+        XCTAssertEqual(subagent.title, "Popper (Codex subagent)")
+    }
+
+    func testCodexThreadDiscoveryDoesNotCreateCompletedHistoricalSession() throws {
+        let frame = try CodexJSONRPC.decode(Data(#"{"id":23,"result":{"thread":{"id":"finished","parentThreadId":null,"agentNickname":null,"name":"Finished task","cwd":"/tmp","updatedAt":1784032206,"turns":[{"status":"completed","completedAt":1784032206}]}}}"#.utf8))
+        XCTAssertNil(CodexThreadDiscovery.event(fromThreadRead: frame, includeCompleted: false))
+    }
+
+    func testCodexThreadListDiscoveryIncludesRecentSubagents() throws {
+        let frame = try CodexJSONRPC.decode(Data(#"{"id":24,"result":{"data":[{"id":"desktop","updatedAt":1784032696},{"id":"subagent","updatedAt":1784032692,"parentThreadId":"desktop"},{"id":"old","updatedAt":1784020000}]}}"#.utf8))
+        let summaries = CodexThreadDiscovery.recentThreads(
+            fromThreadList: frame,
+            updatedAfter: Date(timeIntervalSince1970: 1784032600)
+        )
+        XCTAssertEqual(summaries.map(\.id), ["desktop", "subagent"])
+
+        let request = try JSONSerialization.jsonObject(with: CodexThreadDiscovery.threadListRequest(id: 25)) as! [String: Any]
+        let params = request["params"] as! [String: Any]
+        let sourceKinds = params["sourceKinds"] as! [String]
+        XCTAssertTrue(sourceKinds.contains("vscode"))
+        XCTAssertTrue(sourceKinds.contains("subAgent"))
+        XCTAssertEqual(request["method"] as? String, "thread/list")
+    }
+
+    func testRealCodexControllerConnectsWhenEnabled() async throws {
+        guard ProcessInfo.processInfo.environment["MORPHLING_RUN_CODEX_INTEGRATION"] == "1" else {
+            throw XCTSkip("Set MORPHLING_RUN_CODEX_INTEGRATION=1 to exercise the installed Codex CLI")
+        }
+        let store = AgentSessionStore()
+        let controller = CodexAppServerController(store: store)
+        try await controller.start()
+        if ProcessInfo.processInfo.environment["MORPHLING_EXPECT_ACTIVE_CODEX"] == "1" {
+            let clock = ContinuousClock()
+            let deadline = clock.now.advanced(by: .seconds(10))
+            while clock.now < deadline,
+                  !(await store.snapshot()).contains(where: { $0.agent == .codex && $0.state == .working }) {
+                try await Task.sleep(for: .milliseconds(100))
+            }
+            let sessions = await store.snapshot()
+            XCTAssertTrue(sessions.contains(where: { $0.agent == .codex && $0.state == .working }))
+        }
+        await controller.stop()
     }
 
     func testMascotAndQuestionForm() async {
+        XCTAssertNotNil(MorphlingResources.url(forResource: "MascotIdle", withExtension: "svg"))
+        XCTAssertNotNil(MorphlingResources.url(forResource: "frame-001", withExtension: "png"))
+        XCTAssertNil(MorphlingResources.url(forResource: "haland_out", withExtension: "mov"))
         XCTAssertEqual(DefaultMascotAssets().assetName(for: .error), "MascotNeedsInput")
         let q = AgentQuestion(id: "q", prompt: "Pick", choices: [AgentChoice(id: "1", label: "One", description: nil, value: "one")], allowsFreeText: false, isMultiSelect: false)
         let form = await QuestionFormModel(questions: [q])
