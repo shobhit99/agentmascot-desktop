@@ -49,6 +49,8 @@ enum DemoState {
     var pendingTask: Task<Void, Never>?
     var codex: CodexAppServerController?
     private let avatarSelection: AvatarSelectionCoordinator
+    private var isStarting = false
+    private var lifecycleGeneration = 0
     init(model: AppModel) {
         self.model = model
         let support = FileManager.default
@@ -65,8 +67,18 @@ enum DemoState {
     }
 
     func start(demoState: DemoState = .none) async {
-        guard server == nil, streamTask == nil else { return }
+        guard !isStarting, server == nil, streamTask == nil else { return }
+        isStarting = true
+        lifecycleGeneration &+= 1
+        let lifecycle = lifecycleGeneration
+        defer {
+            if lifecycleGeneration == lifecycle {
+                isStarting = false
+            }
+        }
+
         await avatarSelection.start()
+        guard lifecycleGeneration == lifecycle else { return }
         if demoState != .none { await startDemo(demoState); return }
         do {
             let support=FileManager.default.urls(for:.applicationSupportDirectory,in:.userDomainMask)[0].appendingPathComponent("Agent Mascot")
@@ -118,9 +130,12 @@ enum DemoState {
         model.codexHookStatus=codex.status();model.installCodexHooks={try codex.install(token:token,port:7824)};model.uninstallCodexHooks={try codex.uninstall()}
     }
     func stop() async {
+        lifecycleGeneration &+= 1
+        isStarting = false
+        avatarSelection.stop()
         pendingTask?.cancel();streamTask?.cancel();pendingTask=nil;streamTask=nil
         await claudeRegistry.shutdown();await codex?.stop();codex=nil
-        server?.stop();server=nil;avatarSelection.stop();model.answerClaude=nil;model.cancelClaude=nil
+        server?.stop();server=nil;model.answerClaude=nil;model.cancelClaude=nil
     }
     deinit { pendingTask?.cancel();streamTask?.cancel();server?.stop() }
 }
