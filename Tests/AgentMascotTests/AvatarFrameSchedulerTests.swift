@@ -10,7 +10,7 @@ final class AvatarFrameSchedulerTests: XCTestCase {
         XCTAssertEqual(AvatarFrameScheduler.frameIndex(elapsed: 0.099, animation: animation), 0)
         XCTAssertEqual(AvatarFrameScheduler.frameIndex(elapsed: 0.1, animation: animation), 1)
         XCTAssertEqual(AvatarFrameScheduler.frameIndex(elapsed: 0.299, animation: animation), 1)
-        XCTAssertEqual(AvatarFrameScheduler.frameIndex(elapsed: 0.3, animation: animation), 2)
+        XCTAssertEqual(AvatarFrameScheduler.frameIndex(elapsed: 0.1 + 0.2, animation: animation), 2)
         XCTAssertEqual(AvatarFrameScheduler.frameIndex(elapsed: 0.599, animation: animation), 2)
     }
 
@@ -20,6 +20,15 @@ final class AvatarFrameSchedulerTests: XCTestCase {
 
         XCTAssertEqual(
             AvatarFrameScheduler.frameIndex(elapsed: justBeforeFirstBoundary, animation: animation),
+            0
+        )
+    }
+
+    func testSchedulerKeepsImmediatePredecessorOfFrameBoundaryInPriorFrame() throws {
+        let animation = try makeAnimation(durations: [0.5, 0.5])
+
+        XCTAssertEqual(
+            AvatarFrameScheduler.frameIndex(elapsed: 0.5.nextDown, animation: animation),
             0
         )
     }
