@@ -48,10 +48,25 @@ enum DemoState {
     var streamTask: Task<Void, Never>?
     var pendingTask: Task<Void, Never>?
     var codex: CodexAppServerController?
-    init(model: AppModel) { self.model = model }
+    private let avatarSelection: AvatarSelectionCoordinator
+    init(model: AppModel) {
+        self.model = model
+        let support = FileManager.default
+            .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Agent Mascot")
+        avatarSelection = AvatarSelectionCoordinator(
+            model: model,
+            store: CustomAvatarStore(
+                directoryURL: support,
+                decoder: ImageIOAPNGDecoder()
+            ),
+            picker: SystemAvatarFilePicker()
+        )
+    }
 
     func start(demoState: DemoState = .none) async {
         guard server == nil, streamTask == nil else { return }
+        await avatarSelection.start()
         if demoState != .none { await startDemo(demoState); return }
         do {
             let support=FileManager.default.urls(for:.applicationSupportDirectory,in:.userDomainMask)[0].appendingPathComponent("Agent Mascot")
@@ -105,7 +120,7 @@ enum DemoState {
     func stop() async {
         pendingTask?.cancel();streamTask?.cancel();pendingTask=nil;streamTask=nil
         await claudeRegistry.shutdown();await codex?.stop();codex=nil
-        server?.stop();server=nil;model.answerClaude=nil;model.cancelClaude=nil
+        server?.stop();server=nil;avatarSelection.stop();model.answerClaude=nil;model.cancelClaude=nil
     }
     deinit { pendingTask?.cancel();streamTask?.cancel();server?.stop() }
 }

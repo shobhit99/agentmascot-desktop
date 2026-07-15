@@ -9,6 +9,8 @@ import Observation
     var codexHookStatus: CodexHookStatus = .notInstalled
     var codexStatus = "Not connected"
     var migrationWarning: String?
+    var customAvatar: APNGAnimation?
+    var avatarImportError: String?
     @ObservationIgnored var answerClaude: ((String, [String: [String]]) async -> Bool)?
     @ObservationIgnored var cancelClaude: ((String) async -> Void)?
     @ObservationIgnored var installClaudeHooks: (() throws -> Void)?
@@ -16,6 +18,7 @@ import Observation
     @ObservationIgnored var installCodexHooks: (() throws -> Void)?
     @ObservationIgnored var uninstallCodexHooks: (() throws -> Void)?
     @ObservationIgnored var openSession: ((AgentSession) throws -> Void)?
+    @ObservationIgnored var chooseCustomAvatar: (() -> Void)?
 
     var mainSessions: [AgentSession] { sessions.filter { $0.role == .main } }
     var workingMainSessions: [AgentSession] { mainSessions.filter { $0.state == .working }.sorted { $0.updatedAt > $1.updatedAt } }
@@ -27,6 +30,7 @@ import Observation
     }
     func cancel(requestID: String) async { await cancelClaude?(requestID) }
     func open(session: AgentSession) throws { try openSession?(session) }
+    func chooseAvatar() { chooseCustomAvatar?() }
     func installHooks() { do { try installClaudeHooks?(); try installCodexHooks?(); claudeHookStatus = .installed; codexHookStatus = .installed } catch { bridgeStatus = "Hook install error: \(error.localizedDescription)" } }
     func uninstallHooks() { do { try uninstallClaudeHooks?(); try uninstallCodexHooks?(); claudeHookStatus = .notInstalled; codexHookStatus = .notInstalled } catch { bridgeStatus = "Hook uninstall error: \(error.localizedDescription)" } }
 }
