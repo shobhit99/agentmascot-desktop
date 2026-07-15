@@ -5,9 +5,11 @@ import AppKit
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     var body: some Scene {
         MenuBarExtra("Agent Mascot", systemImage: appDelegate.model.aggregateState == .needsInput ? "questionmark.circle.fill" : "sparkles") {
-            RootView(model: appDelegate.model)
+            RootView(model: appDelegate.model, presentation: .menuBar)
         }.menuBarExtraStyle(.window)
-        Settings { RootView(model: appDelegate.model) }
+        Settings {
+            RootView(model: appDelegate.model, presentation: .settings)
+        }
     }
 }
 

@@ -1,8 +1,16 @@
 import AppKit
 import SwiftUI
 
+enum RootViewPresentation: Sendable, Equatable {
+    case menuBar
+    case settings
+
+    var showsAvatarControls: Bool { self == .menuBar }
+}
+
 struct RootView: View {
     @Bindable var model: AppModel
+    let presentation: RootViewPresentation
 
     var body: some View {
         VStack(spacing: 16) {
@@ -11,6 +19,10 @@ struct RootView: View {
             Text(model.bridgeStatus).font(.caption).foregroundStyle(.secondary)
             if let warning = model.migrationWarning {
                 Text(warning).font(.caption).foregroundStyle(.orange)
+            }
+
+            if presentation.showsAvatarControls {
+                AvatarMenuControl(model: model)
             }
 
             if !model.pendingClaudeRequests.isEmpty {

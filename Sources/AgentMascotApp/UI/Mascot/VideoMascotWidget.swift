@@ -25,7 +25,13 @@ struct VideoMascotWidget: View {
 
     var body: some View {
         ZStack(alignment: .bottom) {
-            AnimatedMascotView()
+            Group {
+                if let customAvatar = model.customAvatar {
+                    APNGAvatarView(animation: customAvatar)
+                } else {
+                    BundledMascotAnimationView()
+                }
+            }
                 .frame(width: 360, height: 203)
 
             statusCapsule
@@ -62,7 +68,7 @@ struct VideoMascotWidget: View {
     }
 }
 
-private struct AnimatedMascotView: View {
+private struct BundledMascotAnimationView: View {
     private let frames = Self.loadFrames()
     private let startedAt = Date()
 
