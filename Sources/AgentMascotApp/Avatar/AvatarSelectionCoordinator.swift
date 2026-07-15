@@ -66,15 +66,20 @@ final class AvatarSelectionCoordinator {
     }
 
     func chooseAndImport() async {
+        await chooseAndImport(lifecycle: lifecycleGeneration)
+    }
+
+    private func chooseAndImport(lifecycle: Int) async {
+        guard canContinue(lifecycle: lifecycle) else { return }
         guard let sourceURL = picker.chooseAPNG() else { return }
-        guard isActive else { return }
+        guard canContinue(lifecycle: lifecycle) else { return }
 
         latestOperation &+= 1
-        let lifecycle = lifecycleGeneration
         let operation = latestOperation
         model.avatarImportError = nil
 
         do {
+            guard canContinue(lifecycle: lifecycle) else { return }
             let animation = try await workQueue.perform { [store] in
                 try store.importAvatar(from: sourceURL)
             }
@@ -97,14 +102,19 @@ final class AvatarSelectionCoordinator {
     }
 
     private func beginChoosing() {
+        let lifecycle = lifecycleGeneration
         selectionTask?.cancel()
         selectionTask = Task { [weak self] in
-            await self?.chooseAndImport()
+            await self?.chooseAndImport(lifecycle: lifecycle)
         }
     }
 
+    private func canContinue(lifecycle: Int) -> Bool {
+        isActive && lifecycleGeneration == lifecycle && !Task.isCancelled
+    }
+
     private func canPublish(lifecycle: Int, operation: Int) -> Bool {
-        isActive && lifecycleGeneration == lifecycle && latestOperation == operation
+        canContinue(lifecycle: lifecycle) && latestOperation == operation
     }
 
     private static func message(for error: Error) -> String {

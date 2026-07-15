@@ -170,6 +170,35 @@ final class AvatarSelectionCoordinatorTests: XCTestCase {
         XCTAssertNil(model.chooseCustomAvatar)
     }
 
+    func testQueuedSelectionCancelledBeforeRestartDoesNotOpenImportOrPublish() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try Data("saved".utf8).write(to: root.appendingPathComponent("avatar.apng"))
+        let source = try sourceFile(named: "selected.apng", bytes: "selected")
+        defer { try? FileManager.default.removeItem(at: source) }
+        let picker = CountingPicker(url: source)
+        let decoder = SelectionTrackingDecoder()
+        let model = AppModel()
+        let coordinator = AvatarSelectionCoordinator(
+            model: model,
+            store: CustomAvatarStore(directoryURL: root, decoder: decoder),
+            picker: picker
+        )
+
+        await coordinator.start()
+        let choose = try XCTUnwrap(model.chooseCustomAvatar)
+        choose()
+        coordinator.stop()
+        await coordinator.start()
+        await Task.yield()
+        await Task.yield()
+
+        XCTAssertEqual(picker.chooseCount, 0)
+        XCTAssertEqual(decoder.selectedDecodeCount, 0)
+        XCTAssertEqual(model.customAvatar?.frames.count, 3)
+        XCTAssertEqual(try Data(contentsOf: root.appendingPathComponent("avatar.apng")), Data("saved".utf8))
+    }
+
     func testOverlappingImportsPublishAndPersistNewestSelection() async throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -328,6 +357,42 @@ private final class BlockingDecoder: APNGDecoding, @unchecked Sendable {
         }
 
         return try testAnimation(frameCount: content == "second" ? 3 : 2)
+    }
+}
+
+@MainActor
+private final class CountingPicker: AvatarFilePicking {
+    private let url: URL?
+    private(set) var chooseCount = 0
+
+    init(url: URL?) {
+        self.url = url
+    }
+
+    func chooseAPNG() -> URL? {
+        chooseCount += 1
+        return url
+    }
+}
+
+private final class SelectionTrackingDecoder: APNGDecoding, @unchecked Sendable {
+    private let lock = NSLock()
+    private var selectedDecodes = 0
+
+    var selectedDecodeCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return selectedDecodes
+    }
+
+    func decode(url: URL) throws -> APNGAnimation {
+        let contents = String(decoding: try Data(contentsOf: url), as: UTF8.self)
+        if contents == "selected" {
+            lock.lock()
+            selectedDecodes += 1
+            lock.unlock()
+        }
+        return try testAnimation(frameCount: contents == "selected" ? 2 : 3)
     }
 }
 
