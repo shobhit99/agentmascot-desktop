@@ -14,6 +14,16 @@ final class AvatarFrameSchedulerTests: XCTestCase {
         XCTAssertEqual(AvatarFrameScheduler.frameIndex(elapsed: 0.599, animation: animation), 2)
     }
 
+    func testSchedulerDoesNotAdvanceJustBeforeFrameBoundary() throws {
+        let animation = try makeAnimation(durations: [0.1, 0.2])
+        let justBeforeFirstBoundary = 0.1 - 0.5e-9
+
+        XCTAssertEqual(
+            AvatarFrameScheduler.frameIndex(elapsed: justBeforeFirstBoundary, animation: animation),
+            0
+        )
+    }
+
     func testSchedulerLoopsContinuously() throws {
         let animation = try makeAnimation(durations: [0.1, 0.2, 0.3])
 
