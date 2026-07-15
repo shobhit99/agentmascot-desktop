@@ -1,6 +1,6 @@
 # Agent Mascot
 
-Native macOS menu-bar mascot for Claude Code 2.x and Codex CLI 0.144.x. Agent Mascot binds an authenticated bridge only to `127.0.0.1:7824`, owns a loopback Codex app-server on a dynamically selected port, discovers active Codex Desktop/CLI threads and subagents through the app-server protocol, and displays three bundled static mascot assets.
+Native macOS menu-bar mascot for Claude Code 2.x and Codex CLI 0.144.x. Agent Mascot binds an authenticated bridge only to `127.0.0.1:7824`, owns a loopback Codex app-server on a dynamically selected port, discovers active Codex Desktop/CLI threads and subagents through the app-server protocol, and supports a persistent custom APNG for the floating mascot.
 
 ## Build and development package
 
@@ -16,7 +16,7 @@ ALLOW_ADHOC_DMG=1 ./scripts/build-dmg.sh
 
 The packaging scripts copy SwiftPM's generated `AgentMascot_AgentMascotApp.bundle` into the app before signing. Do not copy `Sources/AgentMascotApp/Resources` into a signed app manually: `Bundle.module` metadata expects the generated bundle, and changing the app after signing invalidates the signature.
 
-Only the rendered PNG frames, status SVGs, and hook scripts are included in the app. The source APNG and MOV files are intentionally excluded from the package so release artifacts never need to be slimmed after signing.
+Only the rendered PNG frames, status SVGs, and hook scripts for the built-in experience are included in the app. The source APNG and MOV files are intentionally excluded so release artifacts never need to be slimmed after signing. A user-selected avatar is copied at runtime to `~/Library/Application Support/Agent Mascot/avatar.apng`; it is never added to the signed app bundle.
 
 For a public build, use a Developer ID Application identity and a saved `notarytool` keychain profile:
 
@@ -41,6 +41,10 @@ NOTARYTOOL_ISSUER="00000000-0000-0000-0000-000000000000" \
 For the local Codex run loop, use `./script/build_and_run.sh --verify`. The Run action in `.codex/environments/environment.toml` uses the same entrypoint.
 
 Demo without services or config mutation: `swift run AgentMascotApp --demo-state needsInput`.
+
+## Custom floating avatar
+
+Open the Agent Mascot menu-bar window and choose **Change Avatar…** to select one animated PNG (`.apng` or `.png`). Agent Mascot validates and copies it into Application Support, updates the floating mascot immediately, and keeps it across restarts even if the original file moves. Choosing another valid APNG replaces it. The menu/settings mascot, menu-bar icon, status capsule, and floating window size do not change.
 
 Agent Mascot resolves Codex from `AGENT_MASCOT_CODEX_PATH`, the inherited `PATH`, common user install locations such as `~/.local/bin`, nvm installations, Homebrew, or the Codex binary bundled with ChatGPT. This is required because apps opened from Finder do not inherit an interactive shell's `PATH`.
 
