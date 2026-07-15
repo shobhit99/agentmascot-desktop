@@ -33,9 +33,10 @@ final class AvatarSelectionCoordinatorTests: XCTestCase {
         let source = try sourceFile(named: "chosen.apng", bytes: "chosen")
         defer { try? FileManager.default.removeItem(at: source) }
         let model = AppModel()
+        let decoder = ThreadRecordingDecoder()
         let coordinator = AvatarSelectionCoordinator(
             model: model,
-            store: CustomAvatarStore(directoryURL: root, decoder: IntegrationDecoder()),
+            store: CustomAvatarStore(directoryURL: root, decoder: decoder),
             picker: StubPicker(url: source)
         )
 
@@ -43,6 +44,7 @@ final class AvatarSelectionCoordinatorTests: XCTestCase {
 
         XCTAssertEqual(model.customAvatar?.frames.count, 2)
         XCTAssertNil(model.avatarImportError)
+        XCTAssertTrue(decoder.allCallsWereOffMain)
         XCTAssertEqual(
             try Data(contentsOf: root.appendingPathComponent("avatar.apng")),
             Data("chosen".utf8)
@@ -197,6 +199,68 @@ final class AvatarSelectionCoordinatorTests: XCTestCase {
         XCTAssertEqual(decoder.selectedDecodeCount, 0)
         XCTAssertEqual(model.customAvatar?.frames.count, 3)
         XCTAssertEqual(try Data(contentsOf: root.appendingPathComponent("avatar.apng")), Data("saved".utf8))
+    }
+
+    func testRetainedChoiceFromPreviousLifecycleDoesNotOpenPickerAfterRestart() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try Data("saved".utf8).write(to: root.appendingPathComponent("avatar.apng"))
+        let source = try sourceFile(named: "selected.apng", bytes: "selected")
+        defer { try? FileManager.default.removeItem(at: source) }
+        let picker = CountingPicker(url: source)
+        let decoder = SelectionTrackingDecoder()
+        let model = AppModel()
+        let coordinator = AvatarSelectionCoordinator(
+            model: model,
+            store: CustomAvatarStore(directoryURL: root, decoder: decoder),
+            picker: picker
+        )
+
+        await coordinator.start()
+        let staleChoice = try XCTUnwrap(model.chooseCustomAvatar)
+        coordinator.stop()
+        await coordinator.start()
+        staleChoice()
+        await Task.yield()
+        await Task.yield()
+
+        XCTAssertEqual(picker.chooseCount, 0)
+        XCTAssertEqual(decoder.selectedDecodeCount, 0)
+        XCTAssertEqual(model.customAvatar?.frames.count, 3)
+        XCTAssertEqual(try Data(contentsOf: root.appendingPathComponent("avatar.apng")), Data("saved".utf8))
+    }
+
+    func testStopAndRestartDuringStagedImportPreservesPreviousPersistedAvatar() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try Data("saved".utf8).write(to: root.appendingPathComponent("avatar.apng"))
+        let source = try sourceFile(named: "selected.apng", bytes: "selected")
+        defer { try? FileManager.default.removeItem(at: source) }
+        let decoder = StagedImportBlockingDecoder()
+        let model = AppModel()
+        let coordinator = AvatarSelectionCoordinator(
+            model: model,
+            store: CustomAvatarStore(directoryURL: root, decoder: decoder),
+            picker: StubPicker(url: source)
+        )
+
+        await coordinator.start()
+        let choose = try XCTUnwrap(model.chooseCustomAvatar)
+        choose()
+        await Task.yield()
+        await Task.yield()
+        XCTAssertEqual(decoder.waitForStagedImport(), .success)
+
+        coordinator.stop()
+        let restart = Task { await coordinator.start() }
+        await Task.yield()
+        decoder.releaseStagedImport()
+        await restart.value
+
+        XCTAssertEqual(try Data(contentsOf: root.appendingPathComponent("avatar.apng")), Data("saved".utf8))
+        XCTAssertEqual(model.customAvatar?.frames.count, 3)
+        XCTAssertNil(model.avatarImportError)
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: root.path), ["avatar.apng"])
     }
 
     func testOverlappingImportsPublishAndPersistNewestSelection() async throws {
@@ -393,6 +457,28 @@ private final class SelectionTrackingDecoder: APNGDecoding, @unchecked Sendable 
             lock.unlock()
         }
         return try testAnimation(frameCount: contents == "selected" ? 2 : 3)
+    }
+}
+
+private final class StagedImportBlockingDecoder: APNGDecoding, @unchecked Sendable {
+    private let stagedImportEntered = DispatchSemaphore(value: 0)
+    private let stagedImportRelease = DispatchSemaphore(value: 0)
+
+    func waitForStagedImport() -> DispatchTimeoutResult {
+        stagedImportEntered.wait(timeout: .now() + 5)
+    }
+
+    func releaseStagedImport() {
+        stagedImportRelease.signal()
+    }
+
+    func decode(url: URL) throws -> APNGAnimation {
+        let contents = String(decoding: try Data(contentsOf: url), as: UTF8.self)
+        if url.lastPathComponent.hasPrefix(".avatar-") {
+            stagedImportEntered.signal()
+            stagedImportRelease.wait()
+        }
+        return try testAnimation(frameCount: contents == "saved" ? 3 : 2)
     }
 }
 

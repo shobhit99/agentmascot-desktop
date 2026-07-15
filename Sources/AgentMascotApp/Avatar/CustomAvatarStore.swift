@@ -9,6 +9,38 @@ protocol AvatarFileSystem: Sendable {
     func removeItemIfExists(at url: URL) throws
 }
 
+protocol AvatarImportCommitAuthorizing: Sendable {
+    /// Executes `operation` only while this authorization remains valid.
+    /// Implementations must serialize invalidation with the complete operation.
+    func performIfAuthorized(_ operation: @Sendable () throws -> Void) throws -> Bool
+}
+
+final class AvatarImportCommitGate: AvatarImportCommitAuthorizing, @unchecked Sendable {
+    private let lock = NSLock()
+    private var isValid = true
+
+    func invalidate() {
+        lock.lock()
+        isValid = false
+        lock.unlock()
+    }
+
+    func performIfAuthorized(_ operation: @Sendable () throws -> Void) throws -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard isValid else { return false }
+        try operation()
+        return true
+    }
+}
+
+private struct AlwaysAuthorizedAvatarImportCommit: AvatarImportCommitAuthorizing {
+    func performIfAuthorized(_ operation: @Sendable () throws -> Void) throws -> Bool {
+        try operation()
+        return true
+    }
+}
+
 struct LocalAvatarFileSystem: AvatarFileSystem {
     func fileExists(at url: URL) -> Bool {
         FileManager.default.fileExists(atPath: url.path)
@@ -61,6 +93,16 @@ struct CustomAvatarStore: Sendable {
     }
 
     func importAvatar(from sourceURL: URL) throws -> APNGAnimation {
+        try importAvatar(
+            from: sourceURL,
+            commitAuthorization: AlwaysAuthorizedAvatarImportCommit()
+        )
+    }
+
+    func importAvatar(
+        from sourceURL: URL,
+        commitAuthorization: any AvatarImportCommitAuthorizing
+    ) throws -> APNGAnimation {
         _ = try decoder.decode(url: sourceURL)
 
         let stagingURL = directoryURL
@@ -73,12 +115,17 @@ struct CustomAvatarStore: Sendable {
             try fileSystem.copyItem(at: sourceURL, to: stagingURL)
             let stagedAnimation = try decoder.decode(url: stagingURL)
 
-            if fileSystem.fileExists(at: avatarURL) {
-                try fileSystem.replaceItem(at: avatarURL, with: stagingURL)
-            } else {
-                try fileSystem.moveItem(at: stagingURL, to: avatarURL)
+            let committed = try commitAuthorization.performIfAuthorized {
+                if fileSystem.fileExists(at: avatarURL) {
+                    try fileSystem.replaceItem(at: avatarURL, with: stagingURL)
+                } else {
+                    try fileSystem.moveItem(at: stagingURL, to: avatarURL)
+                }
             }
+            guard committed else { throw CancellationError() }
             return stagedAnimation
+        } catch is CancellationError {
+            throw CancellationError()
         } catch let error as AvatarImportError {
             throw error
         } catch {

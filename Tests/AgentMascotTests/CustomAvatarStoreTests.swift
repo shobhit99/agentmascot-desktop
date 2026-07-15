@@ -99,6 +99,25 @@ final class CustomAvatarStoreTests: XCTestCase {
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: root.path), ["avatar.apng"])
     }
 
+    func testInvalidatedCommitAuthorizationPreservesExistingAvatarAndCleansStage() throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try Data("old".utf8).write(to: root.appendingPathComponent("avatar.apng"))
+        let source = try sourceFile(named: "new.apng", bytes: "new")
+        defer { try? FileManager.default.removeItem(at: source) }
+        let gate = AvatarImportCommitGate()
+        gate.invalidate()
+        let store = CustomAvatarStore(directoryURL: root, decoder: StubDecoder())
+
+        XCTAssertThrowsError(
+            try store.importAvatar(from: source, commitAuthorization: gate)
+        ) { error in
+            XCTAssertTrue(error is CancellationError)
+        }
+        XCTAssertEqual(try Data(contentsOf: store.avatarURL), Data("old".utf8))
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: root.path), ["avatar.apng"])
+    }
+
     private func temporaryDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)

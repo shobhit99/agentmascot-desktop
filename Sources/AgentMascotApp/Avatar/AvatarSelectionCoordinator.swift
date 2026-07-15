@@ -27,6 +27,7 @@ final class AvatarSelectionCoordinator {
     private var lifecycleGeneration = 0
     private var latestOperation = 0
     private var selectionTask: Task<Void, Never>?
+    private var importCommitGates: [Int: AvatarImportCommitGate] = [:]
 
     init(
         model: AppModel,
@@ -48,7 +49,7 @@ final class AvatarSelectionCoordinator {
         let operation = latestOperation
 
         model.chooseCustomAvatar = { [weak self] in
-            self?.beginChoosing()
+            self?.beginChoosing(lifecycle: lifecycle)
         }
 
         do {
@@ -76,12 +77,15 @@ final class AvatarSelectionCoordinator {
 
         latestOperation &+= 1
         let operation = latestOperation
+        let commitGate = AvatarImportCommitGate()
+        importCommitGates[operation] = commitGate
+        defer { importCommitGates.removeValue(forKey: operation) }
         model.avatarImportError = nil
 
         do {
             guard canContinue(lifecycle: lifecycle) else { return }
-            let animation = try await workQueue.perform { [store] in
-                try store.importAvatar(from: sourceURL)
+            let animation = try await workQueue.perform { [store, commitGate] in
+                try store.importAvatar(from: sourceURL, commitAuthorization: commitGate)
             }
             guard canPublish(lifecycle: lifecycle, operation: operation) else { return }
             model.customAvatar = animation
@@ -93,6 +97,11 @@ final class AvatarSelectionCoordinator {
     }
 
     func stop() {
+        let gates = importCommitGates.values
+        importCommitGates.removeAll()
+        for gate in gates {
+            gate.invalidate()
+        }
         lifecycleGeneration &+= 1
         isStarted = false
         isActive = false
@@ -101,8 +110,8 @@ final class AvatarSelectionCoordinator {
         model.chooseCustomAvatar = nil
     }
 
-    private func beginChoosing() {
-        let lifecycle = lifecycleGeneration
+    private func beginChoosing(lifecycle: Int) {
+        guard canContinue(lifecycle: lifecycle) else { return }
         selectionTask?.cancel()
         selectionTask = Task { [weak self] in
             await self?.chooseAndImport(lifecycle: lifecycle)
