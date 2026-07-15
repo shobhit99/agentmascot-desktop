@@ -79,7 +79,7 @@ final class AvatarSelectionCoordinator {
         let operation = latestOperation
         let commitGate = AvatarImportCommitGate()
         importCommitGates[operation] = commitGate
-        defer { importCommitGates.removeValue(forKey: operation) }
+        defer { clearImportCommitGate(commitGate, for: operation) }
         model.avatarImportError = nil
 
         do {
@@ -97,11 +97,7 @@ final class AvatarSelectionCoordinator {
     }
 
     func stop() {
-        let gates = importCommitGates.values
-        importCommitGates.removeAll()
-        for gate in gates {
-            gate.invalidate()
-        }
+        invalidateImportCommitGates()
         lifecycleGeneration &+= 1
         isStarted = false
         isActive = false
@@ -112,10 +108,24 @@ final class AvatarSelectionCoordinator {
 
     private func beginChoosing(lifecycle: Int) {
         guard canContinue(lifecycle: lifecycle) else { return }
+        invalidateImportCommitGates()
         selectionTask?.cancel()
         selectionTask = Task { [weak self] in
             await self?.chooseAndImport(lifecycle: lifecycle)
         }
+    }
+
+    private func invalidateImportCommitGates() {
+        let gates = importCommitGates.values
+        importCommitGates.removeAll()
+        for gate in gates {
+            gate.invalidate()
+        }
+    }
+
+    private func clearImportCommitGate(_ gate: AvatarImportCommitGate, for operation: Int) {
+        guard importCommitGates[operation] === gate else { return }
+        importCommitGates.removeValue(forKey: operation)
     }
 
     private func canContinue(lifecycle: Int) -> Bool {

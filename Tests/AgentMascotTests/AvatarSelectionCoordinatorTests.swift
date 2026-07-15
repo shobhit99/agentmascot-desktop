@@ -263,6 +263,48 @@ final class AvatarSelectionCoordinatorTests: XCTestCase {
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: root.path), ["avatar.apng"])
     }
 
+    func testSupersededInstalledSelectionCannotCommitAfterNewSelectionIsCancelled() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try Data("saved".utf8).write(to: root.appendingPathComponent("avatar.apng"))
+        let source = try sourceFile(named: "first.apng", bytes: "first")
+        defer { try? FileManager.default.removeItem(at: source) }
+        let decoder = StagedImportBlockingDecoder()
+        let fileSystem = CommitRecordingFileSystem()
+        let model = AppModel()
+        let picker = SequencePicker(urls: [source, nil])
+        let coordinator = AvatarSelectionCoordinator(
+            model: model,
+            store: CustomAvatarStore(
+                directoryURL: root,
+                decoder: decoder,
+                fileSystem: fileSystem
+            ),
+            picker: picker
+        )
+
+        await coordinator.start()
+        let choose = try XCTUnwrap(model.chooseCustomAvatar)
+
+        choose()
+        await Task.yield()
+        await Task.yield()
+        XCTAssertEqual(decoder.waitForStagedImport(), .success)
+        model.customAvatar = try testAnimation(frameCount: 3)
+        model.avatarImportError = "Previous error"
+
+        choose()
+        await Task.yield()
+        XCTAssertEqual(picker.chooseCount, 2)
+        decoder.releaseStagedImport()
+
+        XCTAssertEqual(fileSystem.waitForCommit(), .timedOut)
+
+        XCTAssertEqual(try Data(contentsOf: root.appendingPathComponent("avatar.apng")), Data("saved".utf8))
+        XCTAssertEqual(model.customAvatar?.frames.count, 3)
+        XCTAssertEqual(model.avatarImportError, "Previous error")
+    }
+
     func testOverlappingImportsPublishAndPersistNewestSelection() async throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -338,13 +380,15 @@ private struct IntegrationDecoder: APNGDecoding {
 
 @MainActor
 private final class SequencePicker: AvatarFilePicking {
-    private var urls: [URL]
+    private var urls: [URL?]
+    private(set) var chooseCount = 0
 
-    init(urls: [URL]) {
+    init(urls: [URL?]) {
         self.urls = urls
     }
 
     func chooseAPNG() -> URL? {
+        chooseCount += 1
         guard !urls.isEmpty else { return nil }
         return urls.removeFirst()
     }
@@ -479,6 +523,41 @@ private final class StagedImportBlockingDecoder: APNGDecoding, @unchecked Sendab
             stagedImportRelease.wait()
         }
         return try testAnimation(frameCount: contents == "saved" ? 3 : 2)
+    }
+}
+
+private final class CommitRecordingFileSystem: AvatarFileSystem, @unchecked Sendable {
+    private let fileSystem = LocalAvatarFileSystem()
+    private let commit = DispatchSemaphore(value: 0)
+
+    func waitForCommit() -> DispatchTimeoutResult {
+        commit.wait(timeout: .now() + 1)
+    }
+
+    func fileExists(at url: URL) -> Bool {
+        fileSystem.fileExists(at: url)
+    }
+
+    func createDirectory(at url: URL) throws {
+        try fileSystem.createDirectory(at: url)
+    }
+
+    func copyItem(at source: URL, to destination: URL) throws {
+        try fileSystem.copyItem(at: source, to: destination)
+    }
+
+    func moveItem(at source: URL, to destination: URL) throws {
+        try fileSystem.moveItem(at: source, to: destination)
+        commit.signal()
+    }
+
+    func replaceItem(at destination: URL, with source: URL) throws {
+        try fileSystem.replaceItem(at: destination, with: source)
+        commit.signal()
+    }
+
+    func removeItemIfExists(at url: URL) throws {
+        try fileSystem.removeItemIfExists(at: url)
     }
 }
 
